@@ -1,0 +1,218 @@
+from fastapi import FastAPI, HTTPException, Depends
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel
+from typing import Dict, List
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+import hashlib
+import json
+from time import time
+
+# --- Blockchain Core ---
+
+class Blockchain:
+    def __init__(self):
+        self.chain = []
+        self.current_transactions = []
+        self.create_genesis_block()
+
+    def create_genesis_block(self):
+        self.create_block(proof=100, previous_hash='1')
+
+    def create_block(self, proof: int, previous_hash: str = None):
+        block = {
+            'index': len(self.chain) + 1,
+            'timestamp': time(),
+            'transactions': self.current_transactions,
+            'proof': proof,
+            'previous_hash': previous_hash or self.hash(self.chain[-1]),
+        }
+        self.current_transactions = []
+        self.chain.append(block)
+        return block
+
+    def add_transaction(self, sender: str, recipient: str, amount: int):
+        self.current_transactions.append({
+            'sender': sender,
+            'recipient': recipient,
+            'amount': amount,
+        })
+        return self.last_block['index'] + 1
+
+    @staticmethod
+    def hash(block: dict):
+        block_string = json.dumps(block, sort_keys=True).encode()
+        return hashlib.sha256(block_string).hexdigest()
+
+    @property
+    def last_block(self):
+        return self.chain[-1]
+
+    def proof_of_work(self, last_proof):
+        proof = 0
+        while not self.valid_proof(last_proof, proof):
+            proof += 1
+        return proof
+
+    @staticmethod
+    def valid_proof(last_proof, proof):
+        guess = f'{last_proof}{proof}'.encode()
+        guess_hash = hashlib.sha256(guess).hexdigest()
+        return guess_hash[:4] == "0000"
+
+# --- Auth & User Setup ---
+
+SECRET_KEY = "supersecretkey"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+app = FastAPI()
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+fake_users_db = {}
+
+class UserInDB(BaseModel):
+    username: str
+    full_name: str | None = None
+    email: str | None = None
+    hashed_password: str
+    disabled: bool | None = None
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def get_user(db, username: str):
+    if username in db:
+        user_dict = db[username]
+        return UserInDB(**user_dict)
+    return None
+
+def authenticate_user(db, username: str, password: str):
+    user = get_user(db, username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=15))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=401,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = get_user(fake_users_db, username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+# --- Models ---
+
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    full_name: str | None = None
+    email: str | None = None
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+
+class MeditationLog(BaseModel):
+    duration_min: int
+
+# --- Karma Token System ---
+
+class KarmaToken:
+    def __init__(self):
+        self.balances = {}
+    
+    def balance_of(self, user: str):
+        return self.balances.get(user, 0)
+    
+    def mint(self, user: str, amount: int):
+        self.balances[user] = self.balances.get(user, 0) + amount
+        return True
+
+token = KarmaToken()
+meditation_logs: Dict[str, int] = {}
+blockchain = Blockchain()
+
+# --- Routes ---
+
+@app.post("/register")
+def register(user: UserCreate):
+    if user.username in fake_users_db:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    hashed_password = get_password_hash(user.password)
+    fake_users_db[user.username] = {
+        "username": user.username,
+        "full_name": user.full_name,
+        "email": user.email,
+        "hashed_password": hashed_password,
+        "disabled": False,
+    }
+    return {"msg": "User registered successfully"}
+
+@app.post("/token", response_model=TokenResponse)
+def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    access_token = create_access_token(data={"sub": user.username}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/meditate")
+def meditate(log: MeditationLog, current_user: UserInDB = Depends(get_current_user)):
+    if log.duration_min <= 0:
+        raise HTTPException(status_code=400, detail="Duration must be positive")
+
+    meditation_logs[current_user.username] = meditation_logs.get(current_user.username, 0) + log.duration_min
+    
+    karma_reward = log.duration_min // 10
+    if karma_reward > 0:
+        token.mint(current_user.username, karma_reward)
+        # บันทึกธุรกรรมลง blockchain
+        blockchain.add_transaction(sender="system", recipient=current_user.username, amount=karma_reward)
+        last_proof = blockchain.last_block['proof']
+        proof = blockchain.proof_of_work(last_proof)
+        previous_hash = blockchain.hash(blockchain.last_block)
+        blockchain.create_block(proof, previous_hash)
+
+    return {
+        "message": f"Meditation logged for {current_user.username}",
+        "total_duration": meditation_logs[current_user.username],
+        "karma_rewarded": karma_reward,
+        "karma_balance": token.balance_of(current_user.username)
+    }
+
+@app.get("/karma_balance")
+def karma_balance(current_user: UserInDB = Depends(get_current_user)):
+    balance = token.balance_of(current_user.username)
+    return {"user": current_user.username, "karma_balance": balance}
+
+@app.get("/chain")
+def full_chain():
+    return {
+        "chain": blockchain.chain,
+        "length": len(blockchain.chain),
+    }
