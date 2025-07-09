@@ -1,0 +1,7 @@
+import json
+
+def sign_transaction(private_key_hex: str, transaction: dict) -> str:
+    sk = SigningKey.from_string(binascii.unhexlify(private_key_hex), curve=SECP256k1)
+    transaction_string = json.dumps(transaction, sort_keys=True).encode()
+    signature = sk.sign(transaction_string)
+    return binascii.hexlify(signature).decode()
