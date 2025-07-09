@@ -1,0 +1,40 @@
+class KarmaToken:
+    def __init__(self, name="Karma", symbol="KRM", total_supply=1000000):
+        self.name = name
+        self.symbol = symbol
+        self.total_supply = total_supply
+        self.balances = {}  # เก็บยอด token ของแต่ละ address
+    
+    def balance_of(self, address):
+        return self.balances.get(address, 0)
+    
+    def transfer(self, sender, receiver, amount):
+        if self.balance_of(sender) < amount:
+            print("Error: insufficient balance")
+            return False
+        self.balances[sender] -= amount
+        self.balances[receiver] = self.balances.get(receiver, 0) + amount
+        print(f"Transferred {amount} {self.symbol} from {sender} to {receiver}")
+        return True
+    
+    def mint(self, address, amount):
+        # เพิ่ม token ให้กับ address
+        self.total_supply += amount
+        self.balances[address] = self.balances.get(address, 0) + amount
+        print(f"Minted {amount} {self.symbol} to {address}")
+
+# ตัวอย่างการใช้งาน
+if __name__ == "__main__":
+    token = KarmaToken()
+    # สมมติ address ผู้ใช้เป็น string ง่าย ๆ
+    user1 = "user1_addr"
+    user2 = "user2_addr"
+
+    # เริ่มต้นแจก token ให้ user1
+    token.mint(user1, 500)
+    print(f"user1 balance: {token.balance_of(user1)}")
+
+    # โอน token จาก user1 ไป user2
+    token.transfer(user1, user2, 200)
+    print(f"user1 balance: {token.balance_of(user1)}")
+    print(f"user2 balance: {token.balance_of(user2)}")
