@@ -1,0 +1,7 @@
+from fastapi import Depends
+
+@app.post("/meditate_signed")
+def meditate_signed(log: SignedMeditationLog, current_user: User = Depends(get_current_user)):
+    # ใช้ current_user.public_key แทน log.public_key เพื่อความปลอดภัย
+    # ตรวจสอบ signature และบันทึกเหมือนเดิม
+    ...
