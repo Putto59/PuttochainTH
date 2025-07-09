@@ -1,0 +1,165 @@
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import { ec as EC } from "elliptic";
+
+const ec = new EC("secp256k1");
+
+function App() {
+  const [mode, setMode] = useState("login"); // 'login' หรือ 'register'
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [keys, setKeys] = useState(null); // เก็บ keypair
+  const [token, setToken] = useState(localStorage.getItem("token") || "");
+  const [message, setMessage] = useState("");
+  const [userInfo, setUserInfo] = useState(null);
+
+  // สร้าง Keypair สำหรับ register
+  const generateKeys = () => {
+    const key = ec.genKeyPair();
+    const privateKey = key.getPrivate("hex");
+    const publicKey = key.getPublic("hex");
+    setKeys({ privateKey, publicKey });
+  };
+
+  useEffect(() => {
+    if (!keys) generateKeys();
+  }, []);
+
+  // สมัครสมาชิก (register)
+  const handleRegister = async () => {
+    if (!username || !password) {
+      setMessage("กรุณากรอก username และ password");
+      return;
+    }
+    try {
+      const res = await axios.post("http://localhost:8000/register", {
+        username,
+        password,
+        full_name: fullName,
+        email,
+        public_key: keys.publicKey,
+      });
+      setMessage("สมัครสมาชิกสำเร็จ! กรุณาเข้าสู่ระบบ");
+      setMode("login");
+    } catch (err) {
+      setMessage(err.response?.data?.detail || "สมัครสมาชิกไม่สำเร็จ");
+    }
+  };
+
+  // เข้าสู่ระบบ (login)
+  const handleLogin = async () => {
+    if (!username || !password) {
+      setMessage("กรุณากรอก username และ password");
+      return;
+    }
+    try {
+      const params = new URLSearchParams();
+      params.append("username", username);
+      params.append("password", password);
+      const res = await axios.post("http://localhost:8000/token", params);
+      setToken(res.data.access_token);
+      localStorage.setItem("token", res.data.access_token);
+      setMessage("เข้าสู่ระบบสำเร็จ");
+      fetchUserInfo(res.data.access_token);
+    } catch (err) {
+      setMessage(err.response?.data?.detail || "เข้าสู่ระบบไม่สำเร็จ");
+    }
+  };
+
+  // ดึงข้อมูล user ปัจจุบัน
+  const fetchUserInfo = async (token) => {
+    try {
+      const res = await axios.get("http://localhost:8000/users/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUserInfo(res.data);
+    } catch {
+      setMessage("ไม่สามารถดึงข้อมูลผู้ใช้ได้");
+    }
+  };
+
+  // Logout
+  const handleLogout = () => {
+    setToken("");
+    setUserInfo(null);
+    localStorage.removeItem("token");
+    setMessage("ออกจากระบบแล้ว");
+  };
+
+  return (
+    <div style={{ maxWidth: 400, margin: "auto", padding: 20 }}>
+      <h2>Buddhochain Auth System</h2>
+
+      {token ? (
+        <>
+          <p>ยินดีต้อนรับ, {userInfo?.username}</p>
+          <p>Public Key: {userInfo?.public_key}</p>
+          <button onClick={handleLogout}>Logout</button>
+        </>
+      ) : (
+        <>
+          <div style={{ marginBottom: 10 }}>
+            <button onClick={() => setMode("login")}>Login</button>
+            <button onClick={() => setMode("register")}>Register</button>
+          </div>
+
+          {mode === "register" && (
+            <>
+              <input
+                placeholder="Full Name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                style={{ width: "100%", marginBottom: 5 }}
+              />
+              <input
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={{ width: "100%", marginBottom: 5 }}
+              />
+              <div>
+                <button onClick={generateKeys}>Generate Keypair</button>
+                {keys && (
+                  <div style={{ wordBreak: "break-word", marginTop: 5 }}>
+                    <div>
+                      <b>Public Key:</b> {keys.publicKey}
+                    </div>
+                    <div>
+                      <b>Private Key:</b> {keys.privateKey}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          <input
+            placeholder="Username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            style={{ width: "100%", marginBottom: 5, marginTop: 10 }}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            style={{ width: "100%", marginBottom: 5 }}
+          />
+
+          {mode === "login" ? (
+            <button onClick={handleLogin}>Login</button>
+          ) : (
+            <button onClick={handleRegister}>Register</button>
+          )}
+        </>
+      )}
+
+      <p style={{ color: "red", marginTop: 10 }}>{message}</p>
+    </div>
+  );
+}
+
+export default App;
