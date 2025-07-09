@@ -1,0 +1,57 @@
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import Dict
+import uvicorn
+
+app = FastAPI()
+
+# โมเดลข้อมูล Meditation Log
+class MeditationLog(BaseModel):
+    user: str
+    duration_min: int  # เวลานั่งสมาธิ (นาที)
+
+# Token system แบบง่าย (เหมือนของเดิม แต่ดัดแปลงให้เข้ากับ API)
+class KarmaToken:
+    def __init__(self):
+        self.balances = {}
+    
+    def balance_of(self, user: str):
+        return self.balances.get(user, 0)
+    
+    def mint(self, user: str, amount: int):
+        self.balances[user] = self.balances.get(user, 0) + amount
+        return True
+
+token = KarmaToken()
+
+# เก็บ Meditation Logs แบบง่ายใน RAM
+meditation_logs: Dict[str, int] = {}
+
+@app.post("/meditate")
+def meditate(log: MeditationLog):
+    # บันทึกระยะเวลาสมาธิรวมของ user
+    if log.duration_min <= 0:
+        raise HTTPException(status_code=400, detail="Duration must be positive")
+    
+    meditation_logs[log.user] = meditation_logs.get(log.user, 0) + log.duration_min
+    
+    # สมมติเรากำหนดให้ทุกๆ 10 นาที = 1 Karma token
+    karma_reward = log.duration_min // 10
+    
+    if karma_reward > 0:
+        token.mint(log.user, karma_reward)
+    
+    return {
+        "message": f"Meditation logged for {log.user}. Duration added: {log.duration_min} minutes.",
+        "total_duration": meditation_logs[log.user],
+        "karma_rewarded": karma_reward,
+        "karma_balance": token.balance_of(log.user)
+    }
+
+@app.get("/karma_balance/{user}")
+def get_karma_balance(user: str):
+    balance = token.balance_of(user)
+    return {"user": user, "karma_balance": balance}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
