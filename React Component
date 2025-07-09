@@ -1,0 +1,81 @@
+import React, { useState } from "react";
+import { ec as EC } from "elliptic";
+import axios from "axios";
+
+const ec = new EC("secp256k1");
+
+export default function Meditation() {
+  const [keys, setKeys] = useState(null);
+  const [duration, setDuration] = useState("");
+  const [message, setMessage] = useState("");
+
+  // สร้าง keypair
+  function generateKeys() {
+    const key = ec.genKeyPair();
+    const privateKey = key.getPrivate("hex");
+    const publicKey = key.getPublic("hex");
+    setKeys({ privateKey, publicKey });
+    setMessage("Keys generated");
+  }
+
+  // เซ็น transaction meditation แล้วส่งไป server
+  async function sendMeditation() {
+    if (!keys) {
+      setMessage("Generate keys first");
+      return;
+    }
+    if (!duration || isNaN(duration) || duration <= 0) {
+      setMessage("Enter valid duration");
+      return;
+    }
+
+    // สร้าง transaction object ตาม server
+    const transaction = {
+      sender_pubkey: "system_pubkey", // กำหนดให้ตรงกับ server
+      recipient_pubkey: keys.publicKey,
+      amount: Math.floor(duration / 10),
+    };
+
+    // เซ็น transaction
+    const keyPair = ec.keyFromPrivate(keys.privateKey, "hex");
+    const transactionString = JSON.stringify(transaction);
+    const signature = keyPair.sign(transactionString).toDER("hex");
+
+    try {
+      const response = await axios.post("http://localhost:8000/meditate_signed", {
+        duration_min: Number(duration),
+        signature,
+        public_key: keys.publicKey,
+      });
+      setMessage(response.data.message);
+    } catch (err) {
+      setMessage(err.response?.data?.detail || "Error calling API");
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 400, margin: "auto" }}>
+      <h2>Buddhochain Meditation</h2>
+      <button onClick={generateKeys}>Generate Keypair</button>
+      {keys && (
+        <div>
+          <p><b>Public Key:</b> {keys.publicKey}</p>
+          <p><b>Private Key:</b> {keys.privateKey}</p>
+        </div>
+      )}
+
+      <input
+        type="number"
+        placeholder="Meditation Duration (minutes)"
+        value={duration}
+        onChange={(e) => setDuration(e.target.value)}
+        style={{ width: "100%", marginTop: 10 }}
+      />
+      <button onClick={sendMeditation} style={{ marginTop: 10 }}>
+        Send Meditation Log
+      </button>
+
+      <p>{message}</p>
+    </div>
+  );
+}
