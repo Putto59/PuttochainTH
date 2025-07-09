@@ -1,0 +1,41 @@
+from fastapi import Body
+
+class SignedMeditationLog(BaseModel):
+    duration_min: int
+    signature: str
+    public_key: str
+
+@app.post("/meditate_signed")
+def meditate_signed(log: SignedMeditationLog, current_user: UserInDB = Depends(get_current_user)):
+    karma_reward = log.duration_min // 10
+    if karma_reward <= 0:
+        return {"message": "Duration too short for reward"}
+
+    transaction = {
+        'sender_pubkey': "system_pubkey",  # ระบบเป็นผู้มอบ token
+        'recipient_pubkey': log.public_key,
+        'amount': karma_reward,
+    }
+
+    # ตรวจสอบ signature ที่ client ส่งมา (ระบบจะไม่เซ็นเอง)
+    if not verify_transaction_signature(log.public_key, transaction, log.signature):
+        raise HTTPException(status_code=400, detail="Invalid transaction signature")
+
+    # เพิ่ม transaction ลง blockchain
+    blockchain.add_transaction(
+        sender_pubkey=transaction['sender_pubkey'],
+        recipient_pubkey=transaction['recipient_pubkey'],
+        amount=transaction['amount'],
+        signature=log.signature
+    )
+
+    # ขุดบล็อกใหม่และเพิ่มใน chain
+    last_proof = blockchain.last_block['proof']
+    proof = blockchain.proof_of_work(last_proof)
+    previous_hash = blockchain.hash(blockchain.last_block)
+    blockchain.create_block(proof, previous_hash)
+
+    # อัพเดต token balance ฝั่ง server (optional)
+    token.mint(current_user.username, karma_reward)
+
+    return {"message": f"Karma token {karma_reward} awarded with verified signature"}
