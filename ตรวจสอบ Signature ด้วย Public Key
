@@ -1,0 +1,8 @@
+def verify_transaction_signature(public_key_hex: str, transaction: dict, signature_hex: str) -> bool:
+    vk = VerifyingKey.from_string(binascii.unhexlify(public_key_hex), curve=SECP256k1)
+    transaction_string = json.dumps(transaction, sort_keys=True).encode()
+    signature = binascii.unhexlify(signature_hex)
+    try:
+        return vk.verify(signature, transaction_string)
+    except:
+        return False
