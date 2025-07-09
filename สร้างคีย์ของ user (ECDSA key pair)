@@ -1,0 +1,14 @@
+from ecdsa import SigningKey, VerifyingKey, SECP256k1
+import binascii
+
+def generate_keys():
+    sk = SigningKey.generate(curve=SECP256k1)
+    vk = sk.get_verifying_key()
+    private_key = binascii.hexlify(sk.to_string()).decode()
+    public_key = binascii.hexlify(vk.to_string()).decode()
+    return private_key, public_key
+
+# ตัวอย่าง
+priv_key, pub_key = generate_keys()
+print("Private Key:", priv_key)
+print("Public Key:", pub_key)
