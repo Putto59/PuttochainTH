@@ -1,0 +1,84 @@
+import hashlib
+import json
+from time import time
+from typing import List, Dict
+
+class Blockchain:
+    def __init__(self):
+        self.chain: List[Dict] = []
+        self.current_transactions: List[Dict] = []
+        self.create_genesis_block()
+
+    def create_genesis_block(self):
+        # สร้างบล็อกแรก
+        self.create_block(proof=100, previous_hash='1')
+
+    def create_block(self, proof: int, previous_hash: str = None):
+        block = {
+            'index': len(self.chain) + 1,
+            'timestamp': time(),
+            'transactions': self.current_transactions,
+            'proof': proof,
+            'previous_hash': previous_hash or self.hash(self.chain[-1]),
+        }
+        self.current_transactions = []
+        self.chain.append(block)
+        return block
+
+    def add_transaction(self, sender: str, recipient: str, amount: int):
+        self.current_transactions.append({
+            'sender': sender,
+            'recipient': recipient,
+            'amount': amount,
+        })
+        return self.last_block['index'] + 1
+
+    @staticmethod
+    def hash(block: Dict):
+        # สร้าง hash ของบล็อก
+        block_string = json.dumps(block, sort_keys=True).encode()
+        return hashlib.sha256(block_string).hexdigest()
+
+    @property
+    def last_block(self):
+        return self.chain[-1]
+
+    def proof_of_work(self, last_proof):
+        proof = 0
+        while not self.valid_proof(last_proof, proof):
+            proof += 1
+        return proof
+
+    @staticmethod
+    def valid_proof(last_proof, proof):
+        guess = f'{last_proof}{proof}'.encode()
+        guess_hash = hashlib.sha256(guess).hexdigest()
+        return guess_hash[:4] == "0000"
+
+# ตัวอย่างเชื่อมกับระบบ Karma + Meditation
+
+blockchain = Blockchain()
+
+# สมมติ user นั่งสมาธิและได้รับ Karma token
+def log_meditation_to_blockchain(user: str, duration_min: int):
+    karma_reward = duration_min // 10
+    if karma_reward == 0:
+        return "Duration too short, no Karma reward"
+
+    # บันทึกธุรกรรม token
+    blockchain.add_transaction(sender="system", recipient=user, amount=karma_reward)
+
+    # ขุดบล็อกใหม่
+    last_proof = blockchain.last_block['proof']
+    proof = blockchain.proof_of_work(last_proof)
+
+    previous_hash = blockchain.hash(blockchain.last_block)
+    block = blockchain.create_block(proof, previous_hash)
+
+    return block
+
+# ตัวอย่างเรียกใช้งาน
+if __name__ == "__main__":
+    block = log_meditation_to_blockchain("user1", 25)
+    print("New block added:")
+    print(block)
