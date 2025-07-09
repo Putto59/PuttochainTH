@@ -1,0 +1,15 @@
+class Blockchain:
+    # ... ตามเดิม
+
+    def add_transaction(self, sender_pubkey: str, recipient_pubkey: str, amount: int, signature: str):
+        transaction = {
+            'sender_pubkey': sender_pubkey,
+            'recipient_pubkey': recipient_pubkey,
+            'amount': amount,
+        }
+        # Verify signature ก่อนเพิ่ม
+        if not verify_transaction_signature(sender_pubkey, transaction, signature):
+            raise ValueError("Invalid transaction signature")
+
+        self.current_transactions.append(transaction)
+        return self.last_block['index'] + 1
