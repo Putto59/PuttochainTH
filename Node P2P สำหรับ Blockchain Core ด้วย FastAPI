@@ -1,0 +1,107 @@
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
+from typing import Set, List
+import requests
+from urllib.parse import urlparse
+
+app = FastAPI()
+
+# Set ของ node peers (เก็บ URL ของ node อื่น ๆ)
+peers: Set[str] = set()
+
+# Blockchain class ตามที่เคยสร้างไว้ (ย่อส่วนมา)
+# สมมติ blockchain อยู่ในตัวแปร blockchain
+
+class NodeAddRequest(BaseModel):
+    nodes: List[str]
+
+@app.post("/nodes/register")
+def register_nodes(request: NodeAddRequest):
+    for node in request.nodes:
+        parsed_url = urlparse(node)
+        if parsed_url.netloc:
+            peers.add(parsed_url.netloc)
+        elif parsed_url.path:
+            peers.add(parsed_url.path)
+        else:
+            raise HTTPException(status_code=400, detail="Invalid node URL")
+    return {"message": "New nodes added", "total_nodes": list(peers)}
+
+@app.get("/nodes/resolve")
+def consensus():
+    global blockchain
+
+    replaced = False
+    max_length = len(blockchain.chain)
+    new_chain = None
+
+    for node in peers:
+        try:
+            response = requests.get(f"http://{node}/chain")
+            if response.status_code == 200:
+                data = response.json()
+                length = data['length']
+                chain = data['chain']
+
+                if length > max_length and valid_chain(chain):
+                    max_length = length
+                    new_chain = chain
+        except requests.exceptions.RequestException:
+            continue
+
+    if new_chain:
+        blockchain.chain = new_chain
+        replaced = True
+
+    return {"message": "Chain replaced" if replaced else "Chain is authoritative", "chain": blockchain.chain}
+
+def valid_chain(chain):
+    last_block = chain[0]
+    current_index = 1
+
+    while current_index < len(chain):
+        block = chain[current_index]
+        if block['previous_hash'] != Blockchain.hash(last_block):
+            return False
+        if not Blockchain.valid_proof(last_block['proof'], block['proof']):
+            return False
+        last_block = block
+        current_index += 1
+    return True
+
+# ตัวอย่าง endpoint สำหรับขุดบล็อกและเผยแพร่บล็อกใหม่ไปยังเพื่อน node
+@app.post("/mine")
+def mine_block():
+    last_proof = blockchain.last_block['proof']
+    proof = blockchain.proof_of_work(last_proof)
+
+    # มินต์ reward ให้กับ node ที่ขุดสำเร็จ (เช่น node นี้ใช้ชื่อ "node_server")
+    blockchain.add_transaction(sender="0", recipient="node_server", amount=1)
+
+    previous_hash = blockchain.hash(blockchain.last_block)
+    block = blockchain.create_block(proof, previous_hash)
+
+    # แจ้ง node อื่น ๆ ให้รับบล็อกนี้ (broadcast)
+    for node in peers:
+        try:
+            requests.post(f"http://{node}/nodes/receive_block", json=block)
+        except requests.exceptions.RequestException:
+            continue
+
+    return {"message": "New block mined", "block": block}
+
+# รับบล็อกจาก node อื่นเพื่อตรวจสอบและเพิ่ม chain
+@app.post("/nodes/receive_block")
+def receive_block(block: dict):
+    last_block = blockchain.last_block
+
+    # ตรวจสอบบล็อกที่รับมาว่าถูกต้องไหม
+    if last_block['index'] + 1 != block['index']:
+        raise HTTPException(status_code=400, detail="Invalid index")
+    if last_block['hash'] != block.get('previous_hash', ''):
+        raise HTTPException(status_code=400, detail="Invalid previous hash")
+    if not blockchain.valid_proof(last_block['proof'], block['proof']):
+        raise HTTPException(status_code=400, detail="Invalid proof")
+
+    blockchain.chain.append(block)
+    return {"message": "Block accepted"}
